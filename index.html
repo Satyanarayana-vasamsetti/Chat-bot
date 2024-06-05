@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Object Detection and Question Answering</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f0f4f8;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        h1 {
+            color: #4a90e2;
+            margin-bottom: 20px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+        }
+        form {
+            background: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 90%;
+            max-width: 400px;
+        }
+        input[type="file"], input[type="text"] {
+            margin: 10px 0;
+            padding: 10px;
+            border: 2px solid #ccc;
+            border-radius: 5px;
+            transition: border-color 0.3s, box-shadow 0.3s;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        input[type="file"]:focus, input[type="text"]:focus {
+            border-color: #4a90e2;
+            box-shadow: 0 0 10px rgba(74, 144, 226, 0.5);
+            outline: none;
+        }
+        button {
+            background-color: #4a90e2;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.3s;
+            width: 100%;
+            max-width: 200px;
+            box-sizing: border-box;
+        }
+        button:hover {
+            background-color: #357abd;
+            transform: scale(1.05);
+        }
+        button:active {
+            transform: scale(1);
+        }
+        #results {
+            margin-top: 20px;
+            text-align: center;
+            width: 90%;
+            max-width: 600px;
+        }
+        img, video {
+            max-width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+        a {
+            display: inline-block;
+            margin-top: 10px;
+            color: #4a90e2;
+            text-decoration: none;
+            border: 1px solid #4a90e2;
+            padding: 10px 20px;
+            border-radius: 5px;
+            transition: background-color 0.3s, color 0.3s;
+            width: 100%;
+            max-width: 200px;
+            box-sizing: border-box;
+        }
+        a:hover {
+            background-color: #4a90e2;
+            color: #fff;
+        }
+        #loading {
+            display: none;
+            margin-top: 20px;
+        }
+        #webcam {
+            margin-top: 20px;
+            width: 100%;
+            max-width: 200px;
+            box-sizing: border-box;
+        }
+        .button-container {
+            margin-top: 10px;
+            display: flex;
+            justify-content: center;
+            gap: 10px; /* Space between buttons */
+        }
+    </style>
+    <script>
+        async function uploadFile(event) {
+            event.preventDefault();
+            const formData = new FormData();
+            const fileField = document.querySelector('input[type="file"]');
+            const loadingDiv = document.getElementById('loading');
+            const resultDiv = document.getElementById('results');
+
+            loadingDiv.style.display = 'block';
+            resultDiv.innerHTML = '';
+
+            formData.append('file', fileField.files[0]);
+
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData,
+            });
+
+            const result = await response.json();
+            displayResults(result);
+            loadingDiv.style.display = 'none';
+        }
+
+        async function captureWebcam() {
+            const video = document.createElement('video');
+            video.autoplay = true;
+            video.width = 640;
+            video.height = 480;
+            document.body.appendChild(video);
+
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+
+            const captureButton = document.createElement('button');
+            captureButton.innerText = 'Capture';
+            captureButton.style.width = '200px';
+            document.body.appendChild(captureButton);
+
+            captureButton.addEventListener('click', async () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0);
+
+                const imgData = canvas.toDataURL('image/jpeg');
+                const blob = await fetch(imgData).then(res => res.blob());
+                const formData = new FormData();
+                formData.append('webcam_image', blob, 'webcam.jpg');
+
+                const response = await fetch('/webcam', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                const result = await response.json();
+                displayResults(result);
+                stream.getTracks().forEach(track => track.stop());
+                document.body.removeChild(video);
+                document.body.removeChild(captureButton);
+            });
+        }
+
+        async function askQuestion(event) {
+            event.preventDefault();
+            const outputFile = localStorage.getItem('outputFile');
+
+            const response = await fetch('/ask', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ output_file: outputFile }),
+            });
+
+            const result = await response.json();
+            const msg = new SpeechSynthesisUtterance(result.answer);
+            window.speechSynthesis.speak(msg);
+        }
+
+        function displayResults(result) {
+            const resultDiv = document.getElementById('results');
+            resultDiv.innerHTML = '';
+
+            if (result.error) {
+                resultDiv.innerHTML = `<p>${result.error}</p>`;
+                return;
+            }
+
+            const fileType = result.output_file.split('.').pop().toLowerCase();
+            const filePath = `/outputs/${result.output_file}`;
+            localStorage.setItem('outputFile', result.output_file);
+            localStorage.setItem('detectedObjects', JSON.stringify(result.detected_objects));
+
+            if (fileType === 'png' || fileType === 'jpg' || fileType === 'jpeg') {
+                const img = document.createElement('img');
+                img.src = filePath;
+                img.alt = 'Detected objects';
+                resultDiv.appendChild(img);
+            } else if (fileType === 'mp4' || fileType === 'avi' || fileType === 'mov') {
+                const video = document.createElement('video');
+                video.src = filePath;
+                video.controls = true;
+                resultDiv.appendChild(video);
+            }
+
+            const detectedObjectsText = result.detected_objects.join(', ');
+            const msg = new SpeechSynthesisUtterance(`Detected objects: ${detectedObjectsText}`);
+            window.speechSynthesis.speak(msg);
+
+            const buttonContainer = document.createElement('div');
+            buttonContainer.className = 'button-container';
+
+            const downloadLink = document.createElement('a');
+            downloadLink.href = filePath;
+            downloadLink.download = result.output_file;
+            downloadLink.textContent = 'Download';
+            buttonContainer.appendChild(downloadLink);
+
+            const askButton = document.createElement('button');
+            askButton.innerText = 'Ask';
+            askButton.onclick = askQuestion;
+            buttonContainer.appendChild(askButton);
+
+            resultDiv.appendChild(buttonContainer);
+        }
+    </script>
+</head>
+<body>
+    <h1>Upload an Image or Video for Object Detection</h1>
+    <form onsubmit="uploadFile(event)">
+        <input type="file" name="file" accept="image/*,video/*">
+        <button type="submit">Upload</button>
+    </form>
+    <button id="webcam" onclick="captureWebcam()">Open Webcam</button>
+    <div id="loading">Detecting objects, please wait...</div>
+    <div id="results"></div>
+</body>
+</html>
